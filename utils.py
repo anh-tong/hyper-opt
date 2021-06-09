@@ -16,7 +16,7 @@ def jvp(outputs, inputs, vector, create_graph=False, retrain_graph=False, flatte
         flatten (bool, optional): True if return a flat tensor else return a list of tensor. Defaults to True.
     """
     
-    if isinstance(outputs, tuple):
+    if isinstance(outputs, tuple) or isinstance(outputs, list):
         dummy = [torch.zeros_like(o, requires_grad=True) for o in outputs]
     else:
         dummy = torch.zeros_like(outputs, requires_grad=True)

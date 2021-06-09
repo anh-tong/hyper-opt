@@ -5,6 +5,28 @@ from torch.optim import SGD, RMSprop
 from torch.nn.utils.convert_parameters import parameters_to_vector
 from utils import gvp, jvp, neumann, conjugate_gradient
 
+
+def clip_grad_norm(gradients, max_norm, norm_type=2):
+    """
+    Clip gradients 
+    Args:
+        gradients (list or tuple of tensor): [description]
+        max_norm (float): maximum norm value
+        norm_type (float, optional): norm type. Defaults to 2.
+
+    Returns:
+        [type]: [description]
+    """
+    max_norm, norm_type = float(max_norm), float(norm_type)
+    total_norm = sum([g.norm(norm_type)**norm_type for g in gradients])
+    total_norm = total_norm **(1./norm_type)
+    clip_coef = max_norm / (total_norm + 1e-6)
+    gradients = list(gradients)
+    if clip_coef < 1:
+        gradients = [g * clip_coef for g in gradients]
+    
+    return gradients, total_norm
+
 class BaseHyperOptimizer():
     
     def __init__(
@@ -57,6 +79,8 @@ class BaseHyperOptimizer():
             retain_graph=True  # keep the computation graph of train_loss
             )
         
+        # dtrain_dparam,_ = clip_grad_norm(dtrain_dparam, max_norm=1.)
+        
         def hessian_vector_product(v):
             return jvp(dtrain_dparam, self.parameters, vector=v)
         
@@ -97,14 +121,23 @@ class BaseHyperOptimizer():
             indirect_gradient_ = parameters_to_vector(indirect_gradient)
             direct_norm = torch.norm(direct_gradient_)
             indirect_norm = torch.norm(indirect_gradient_)
-            print(f"Direct norm: {direct_norm.item():.3f} \t Indirect norm: {indirect.item():.3f} ")
+            print(f"Direct norm: {direct_norm.item():.3f} \t Indirect norm: {indirect_norm.item():.3f} ")
             
         self.hyper_optim.step()
         
 class NeumannHyperOptimizer(BaseHyperOptimizer):
     
-    def __init__(self, parameters, hyper_parameters, use_gauss_newton=True) -> None:
-        super().__init__(parameters, hyper_parameters, use_gauss_newton=use_gauss_newton)
+    def __init__(self,
+                 parameters, 
+                 hyper_parameters, 
+                 base_optimizer='SGD', 
+                 default=dict(lr=0.01),
+                 use_gauss_newton=True) -> None:
+        super().__init__(parameters,
+                         hyper_parameters,
+                         base_optimizer=base_optimizer,
+                         default=default,
+                         use_gauss_newton=use_gauss_newton)
     
     def build_inverse_hvp(self, lr=0.01, truncate_iter=5):
         kwargs = dict(lr=lr, truncate_iter=truncate_iter)
@@ -113,9 +146,13 @@ class NeumannHyperOptimizer(BaseHyperOptimizer):
     
 class ConjugateHyperOptimizer(BaseHyperOptimizer):
     
-    def __init__(self, parameters, hyper_parameters) -> None:
+    def __init__(self, 
+                 parameters,
+                 hyper_parameters,
+                 base_optimizer='SGD',
+                 default=dict(lr=0.01)) -> None:
         # Always use Gauss-Newton Hessian because it's possitive definite
-        super().__init__(parameters, hyper_parameters, use_gauss_newton=True)
+        super().__init__(parameters, hyper_parameters, base_optimizer=base_optimizer, default=default, use_gauss_newton=True)
         
     def build_inverse_hvp(self, num_iter=20):
         self.inverse_hvp_kwargs = dict(num_iter=num_iter)
@@ -168,18 +205,18 @@ if __name__ == "__main__":
     train_loss = F.mse_loss(train_logit, y_train) + model.weight_penalty()
     val_loss = model.loss(x_val, y_val)
     
-    # # neumann case
-    # optimizer = NeumannHyperOptimizer(
-    #     parameters=list(model.net.parameters()),
-    #     hyper_parameters=[model.hyper_param], 
-    #     use_gauss_newton=False)
-    # optimizer.step(train_loss, val_loss, train_logit, verbose=True)
+    # neumann case
+    optimizer = NeumannHyperOptimizer(
+        parameters=list(model.net.parameters()),
+        hyper_parameters=[model.hyper_param], 
+        use_gauss_newton=False)
+    optimizer.step(train_loss, val_loss, train_logit, verbose=True)
     
     # conjugate case
-    optimizer = ConjugateHyperOptimizer(
-        parameters=list(model.net.parameters()),
-        hyper_parameters=[model.hyper_param])
-    optimizer.step(train_loss, val_loss, train_logit, verbose=True)
+    # optimizer = ConjugateHyperOptimizer(
+    #     parameters=list(model.net.parameters()),
+    #     hyper_parameters=[model.hyper_param])
+    # optimizer.step(train_loss, val_loss, train_logit, verbose=True)
     
     
     
