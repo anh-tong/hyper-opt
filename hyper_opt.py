@@ -1,31 +1,12 @@
 
 from torch import autograd
 import torch
+from torch.nn.utils import clip_grad_norm_
 from torch.optim import SGD, RMSprop
 from torch.nn.utils.convert_parameters import parameters_to_vector
 from utils import gvp, jvp, neumann, conjugate_gradient
 
 
-def clip_grad_norm(gradients, max_norm, norm_type=2):
-    """
-    Clip gradients 
-    Args:
-        gradients (list or tuple of tensor): [description]
-        max_norm (float): maximum norm value
-        norm_type (float, optional): norm type. Defaults to 2.
-
-    Returns:
-        [type]: [description]
-    """
-    max_norm, norm_type = float(max_norm), float(norm_type)
-    total_norm = sum([g.norm(norm_type)**norm_type for g in gradients])
-    total_norm = total_norm **(1./norm_type)
-    clip_coef = max_norm / (total_norm + 1e-6)
-    gradients = list(gradients)
-    if clip_coef < 1:
-        gradients = [g * clip_coef for g in gradients]
-    
-    return gradients, total_norm
 
 class BaseHyperOptimizer():
     
@@ -78,9 +59,7 @@ class BaseHyperOptimizer():
             create_graph=True, # take higher-order derivative
             retain_graph=True  # keep the computation graph of train_loss
             )
-        
-        # dtrain_dparam,_ = clip_grad_norm(dtrain_dparam, max_norm=1.)
-        
+                
         def hessian_vector_product(v):
             return jvp(dtrain_dparam, self.parameters, vector=v)
         
@@ -109,6 +88,11 @@ class BaseHyperOptimizer():
             )
         direct_gradient = [torch.zeros_like(p) if d is None else d 
                             for d, p in zip(direct_gradient, self.hyper_parameters)]
+        
+        total_gradient = [direct - indirect for direct, indirect in zip(direct_gradient, indirect_gradient)]
+        
+        # clipping gradient to prevent gradient explosion (maybe due to computation instability)
+        clip_grad_norm_(total_gradient, max_norm=1.)
         
         # update grad and perform gradient descent step
         self.hyper_optim.zero_grad()

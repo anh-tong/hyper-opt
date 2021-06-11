@@ -1,3 +1,4 @@
+from network import UNet
 import torch
 import torch.nn as nn
 from torch.nn.modules.container import ParameterList
@@ -21,7 +22,7 @@ class BaseHyperOptModel(nn.Module):
     
     def train_loss(self, x, y):
         
-        x = self.data_augment(x)
+        x = self.data_augment(x, y)
         
         logit = self.network(x)
         loss = self.criterion(logit, y)
@@ -35,7 +36,7 @@ class BaseHyperOptModel(nn.Module):
         loss = self.criterion(logit, y)
         return loss
     
-    def data_augment(self, x):
+    def data_augment(self, x, y):
         """
         Overwrite this to perform data_augmentation task
         """
@@ -87,6 +88,25 @@ class AllL2HyperOptModel(BaseHyperOptModel):
             l2 = weight_decay.exp()
             ret += torch.sum(l2 * param **2)
         return ret
+    
+
+class UNetAugmentHyperOptModel(BaseHyperOptModel):
+    
+    def __init__(self, network, criterion) -> None:
+        super().__init__(network, criterion)
+        
+        self.augment_net = UNet()
+        
+    
+    @property
+    def hyper_parameters(self):
+        return list(self.augment_net.parameters())
+    
+    def data_augment(self, x, y):
+        return self.augment_net(x, y)
             
     
+class ReweightHyperOptModel(BaseHyperOptModel):
     
+    def __init__(self, network, criterion) -> None:
+        super().__init__(network, criterion)

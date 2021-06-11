@@ -1,7 +1,6 @@
 import argparse
 import sys
 import torch
-from torch.nn.modules import module
 sys.path.append("/home/anhth/projects/hyper-opt")
 
 import torch.nn as nn
@@ -30,8 +29,8 @@ train_iter = InfiniteDataLoader(train_loader, device)
 val_iter = InfiniteDataLoader(val_loader, device)
 
 # neural network model
-# model = MLP(num_layers=5, input_shape=(28, 28))
-model = SimpleModel()
+model = MLP(num_layers=5, input_shape=(28, 28))
+# model = SimpleModel()
 criterion = nn.CrossEntropyLoss()
 
 # wrap the neural net with hyperparameter model
@@ -80,11 +79,10 @@ def train():
         train_loss.backward() # retain graph so we can reuse this train loss
         weight_optimizer.step()
         
-        val_loss = None
+        val_x, val_y = val_iter.next_batch()
+        val_loss = h_model.validation_loss(val_x, val_y)
         if train_iter.epoch_elapsed >=1:
             train_loss, train_logit = h_model.train_loss(train_x, train_y)
-            val_x, val_y = val_iter.next_batch()
-            val_loss = h_model.validation_loss(val_x, val_y)
             hyper_optimizer.step(train_loss, val_loss, train_logit, verbose=True)
         
         
