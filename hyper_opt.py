@@ -1,10 +1,11 @@
 
+from model import BaseHyperOptModel
 from torch import autograd
 import torch
 from torch.nn.utils import clip_grad_norm_
 from torch.optim import SGD, RMSprop
 from torch.nn.utils.convert_parameters import parameters_to_vector
-from utils import gvp, jvp, neumann, conjugate_gradient
+from utils import fixed_point, gvp, jvp, neumann, conjugate_gradient
 
 
 
@@ -142,7 +143,24 @@ class ConjugateHyperOptimizer(BaseHyperOptimizer):
         self.inverse_hvp_kwargs = dict(num_iter=num_iter)
         self.inverse_hvp = conjugate_gradient
         
+
+class FixedPointHyperOptimizer(BaseHyperOptimizer):
     
+    def __init__(self,
+                 parameters, 
+                 hyperparmeters,
+                 base_optimizer='SGD', 
+                 default=dict(lr=0.01),
+                 use_gauss_newton=True) -> None:
+        super().__init__(parameters,
+                         hyperparmeters, 
+                         base_optimizer=base_optimizer, 
+                         default=default,
+                         use_gauss_newton=use_gauss_newton)
+        
+    def build_inverse_hvp(self, num_iter=20):
+        self.inverse_hvp_kwargs = dict(num_iter=num_iter)
+        self.inverse_hvp = fixed_point
 
 if __name__ == "__main__":
     

@@ -103,7 +103,7 @@ def neumann(mvp: Callable, vector, lr=0.01, truncate_iter=5):
     
     return p
 
-def conjugate_gradient(mvp: Callable, vector, num_iter=20, eps=0.):
+def conjugate_gradient(mvp: Callable, vector, num_iter=20, eps=1e-12):
     """Conjugate gradient to find argmin of x^\top A x + 2b^\top x
     """
     
@@ -121,6 +121,38 @@ def conjugate_gradient(mvp: Callable, vector, num_iter=20, eps=0.):
     
     return x    
 
+def fixed_point(mvp: Callable, vector, num_iter=20, lr=0.1):
+    
+    
+    v = vector
+    for i in range(num_iter):
+        output_grad = mvp(v)
+        v_new = -lr*output_grad + vector
+        # print(torch.norm(v-v_new))
+        v = v_new
+    return v
+        
+
+def clip_grad_norm(gradients, max_norm, norm_type=2):
+    """
+    Clip gradients 
+    Args:
+        gradients (list or tuple of tensor): [description]
+        max_norm (float): maximum norm value
+        norm_type (float, optional): norm type. Defaults to 2.
+
+    Returns:
+        [type]: [description]
+    """
+    max_norm, norm_type = float(max_norm), float(norm_type)
+    total_norm = sum([g.norm(norm_type)**norm_type for g in gradients])
+    total_norm = total_norm **(1./norm_type)
+    clip_coef = max_norm / (total_norm + 1e-6)
+    gradients = list(gradients)
+    if clip_coef < 1:
+        gradients = [g * clip_coef for g in gradients]
+    
+    return gradients, total_norm
 
 if __name__ == "__main__":
     
@@ -149,6 +181,21 @@ if __name__ == "__main__":
         print(hvp(f2, inputs, vector, retain_graph=True))
         
     test_jvp()
+    
+    
+    def test_fixed_poind():
+        
+        A = torch.randn(3,3)
+        A = A @ A.t() + 0.1 * torch.eye(3)
+        
+        def mvp(v):
+            return A @ v
+        
+        vector = torch.randn(3,1)
+        
+        fixed_point(mvp, vector, lr=0.1)
+        
+    test_fixed_poind()
         
     
     
