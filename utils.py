@@ -101,7 +101,7 @@ def neumann(mvp: Callable, vector, lr=0.01, truncate_iter=5):
         v = v - lr * output_grad
         p = p + v
     
-    return p
+    return p * lr
 
 def conjugate_gradient(mvp: Callable, vector, num_iter=20, eps=1e-12):
     """Conjugate gradient to find argmin of x^\top A x + 2b^\top x
@@ -121,16 +121,20 @@ def conjugate_gradient(mvp: Callable, vector, num_iter=20, eps=1e-12):
     
     return x    
 
-def fixed_point(mvp: Callable, vector, num_iter=20, lr=0.1):
+def fixed_point(mvp: Callable, vector, num_iter=20, lr=1.):
     
     
     v = vector
     for i in range(num_iter):
         output_grad = mvp(v)
-        v_new = -lr*output_grad + vector
-        # print(torch.norm(v-v_new))
+        v_new = v-lr*output_grad + vector
+        norm = torch.norm(v-v_new)
+        # if norm < 1e-3:
+        #     print("converged")
+        # else:
+        #     print(norm.item())
         v = v_new
-    return v
+    return v * lr
         
 
 def clip_grad_norm(gradients, max_norm, norm_type=2):

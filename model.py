@@ -30,6 +30,8 @@ class BaseHyperOptModel(nn.Module):
         
         return loss + regularizer, logit
     
+    
+    
     def validation_loss(self, x, y):
         
         logit = self.network(x)
@@ -73,7 +75,7 @@ class AllL2HyperOptModel(BaseHyperOptModel):
         
         weight_decay = []
         for param in self.network.parameters():
-            l2 = nn.Parameter(torch.ones_like(param)*(-10.))
+            l2 = nn.Parameter(torch.ones_like(param)*(-5))
             weight_decay.append(l2)
         
         self.weight_decay = ParameterList(weight_decay)
@@ -86,7 +88,7 @@ class AllL2HyperOptModel(BaseHyperOptModel):
         ret = 0.
         for weight_decay, param in zip(self.weight_decay, self.parameters):
             l2 = weight_decay.exp()
-            ret += torch.sum(l2 * param **2)
+            ret += torch.sum((l2 * param)**2)
         return ret
     
 

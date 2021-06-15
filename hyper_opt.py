@@ -1,4 +1,5 @@
 
+from typing import Callable
 from model import BaseHyperOptModel
 from torch import autograd
 import torch
@@ -93,7 +94,7 @@ class BaseHyperOptimizer():
         total_gradient = [direct - indirect for direct, indirect in zip(direct_gradient, indirect_gradient)]
         
         # clipping gradient to prevent gradient explosion (maybe due to computation instability)
-        clip_grad_norm_(total_gradient, max_norm=1.)
+        clip_grad_norm_(total_gradient, max_norm=1.)  # TODO: make it configurable
         
         # update grad and perform gradient descent step
         self.hyper_optim.zero_grad()
@@ -158,9 +159,206 @@ class FixedPointHyperOptimizer(BaseHyperOptimizer):
                          default=default,
                          use_gauss_newton=use_gauss_newton)
         
-    def build_inverse_hvp(self, num_iter=20):
-        self.inverse_hvp_kwargs = dict(num_iter=num_iter)
+    def build_inverse_hvp(self, num_iter=20, lr=0.1):
+        self.inverse_hvp_kwargs = dict(num_iter=num_iter, lr=lr)
         self.inverse_hvp = fixed_point
+        
+
+class StochasticFixedPointHyperOptimizer(BaseHyperOptimizer):
+    
+    def __init__(self, parameters, hyper_parameters, base_optimizer, default, use_gauss_newton) -> None:
+        super().__init__(parameters, hyper_parameters, base_optimizer=base_optimizer, default=default, use_gauss_newton=use_gauss_newton)
+        
+    
+    def step(self, train_loss_func: Callable, val_loss, train_logit):
+        
+        eta = 0.9
+        inner_lr = 0.1
+        K = 20
+        
+        def fixed_point_map():
+            train_loss = train_loss_func()
+            dtrain_dparam = autograd.grad(
+                train_loss,
+                self.parameters,
+                create_graph=True
+            )
+            
+            return [p - inner_lr * g for p, g in zip(self.parameters, dtrain_dparam) ]
+        
+        dval_dparam = autograd.grad(
+            val_loss,
+            self.parameters,
+            retain_graph=True
+        )
+        
+        v = dval_dparam
+        for k in range(K):
+            prev_v = v
+            
+            w_mapp = fixed_point_map()
+            output = autograd.grad(
+                w_mapp,
+                self.parameters,
+                grad_outputs=v,
+                retain_graph=False
+            )
+            
+            hat_phi = [o + e for o, e in zip(output, dval_dparam)]        
+            v = [(1.-eta)* v_ + eta*phi for v_, phi in zip(v, hat_phi)]
+        
+        w_mapp = fixed_point_map()
+        indirect = autograd.grad(
+            w_mapp,
+            self.hyper_parameters,
+            grad_outputs=v,
+            allow_unused=True
+        )
+        
+        direct = autograd.grad(
+            val_loss,
+            self.hyper_parameters,
+            allow_unused=True
+        )
+        
+        total_grad = [d + i if d is not None else i for d, i in zip(direct, indirect)]
+        
+        self.hyper_optim.zero_grad()
+        for p, g in zip(self.hyper_parameters, total_grad):
+            p.grad = g
+        self.hyper_optim.step()
+        
+    def build_inverse_hvp(self, **kwargs):
+        pass
+
+
+class StochasticNeumannHyperOptimizer(BaseHyperOptimizer):
+    
+    def __init__(self, parameters, hyper_parameters, base_optimizer, default, use_gauss_newton) -> None:
+        super().__init__(parameters, hyper_parameters, base_optimizer=base_optimizer, default=default, use_gauss_newton=use_gauss_newton)
+        
+    
+    def step(self, train_loss_fun, val_loss, train_logit):
+        
+        inner_lr = 0.1
+        K = 20
+        
+        dval_dparam = autograd.grad(
+            val_loss,
+            self.parameters,
+            retain_graph=True
+        )
+        
+        p = v = dval_dparam
+        
+        for i in range(K):
+            train_loss = train_loss_fun()
+            dtrain_dparam = autograd.grad(
+                train_loss,
+                self.parameters,
+                create_graph=True
+            )
+            
+            output = autograd.grad(
+                dtrain_dparam,
+                self.parameters,
+                grad_outputs=dval_dparam
+            )
+            v = [v_ + inner_lr * o_ for v_, o_ in zip(v, output)]
+            p = [v_ + p_ for v_, p_ in zip(v, p)]
+        
+        train_loss = -inner_lr * train_loss_fun()
+        minus_dtrain_dparam = autograd.grad(
+            train_loss,
+            self.parameters,
+            create_graph=True
+        )
+        
+        indirect = autograd.grad(
+            minus_dtrain_dparam,
+            self.hyper_parameters,
+            grad_outputs=p
+        )
+        
+        
+        direct = autograd.grad(
+            val_loss,
+            self.hyper_parameters,
+            allow_unused=True
+        )
+        
+        total_grad = [d + i if d is not None else i for d, i in zip(direct, indirect)]
+        
+        self.hyper_optim.zero_grad()
+        for p, g in zip(self.hyper_parameters, total_grad):
+            p.grad = g
+        self.hyper_optim.step()
+        
+    def build_inverse_hvp(self, **kwargs):
+        pass
+
+
+class HyperOptOptimizer_v2(BaseHyperOptimizer):
+    
+    """This implememetation is roughly the same with the implementation of https://github.com/prolearner/hypertorch/blob/master/hypergrad/hypergradients.py
+    
+        This is used to compared with our implemetation
+    """
+    
+    def __init__(self,
+                 parameters, 
+                 hyper_parameters, 
+                 base_optimizer='SGD',
+                 default=dict(lr=0.1),
+                 use_gauss_newton=False) -> None:
+        super().__init__(parameters,
+                         hyper_parameters,
+                         base_optimizer=base_optimizer,
+                         default=default, 
+                         use_gauss_newton=use_gauss_newton)
+        
+    def step(self, train_loss, val_loss, train_logit, verbose):
+        K = 20
+        inner_lr=0.1
+        
+        dval_dparam = autograd.grad(val_loss, self.parameters, retain_graph=True)
+        
+        dtrain_dparam = autograd.grad(train_loss, self.parameters, create_graph=True)
+        w_mapped = [p -inner_lr * g for p, g in zip(self.parameters, dtrain_dparam)]
+        
+        
+        
+        # start fixed point iteration
+        vs = [torch.zeros_like(w) for w in self.parameters]
+        vs_vec = parameters_to_vector(vs)
+        for k in range(K):
+            vs_prev_vec = vs_vec
+            vs = autograd.grad(w_mapped,
+                               self.parameters,
+                               grad_outputs=vs,
+                               retain_graph=True)
+            vs = [v + g for v, g in zip(vs, dval_dparam)]
+            
+            vs_vec = parameters_to_vector(vs)
+            print("norm", (vs_vec - vs_prev_vec).norm().item())
+        
+        indirect = autograd.grad(w_mapped, 
+                                 self.hyper_parameters, 
+                                 grad_outputs=vs,
+                                 allow_unused=True)
+        direct = autograd.grad(val_loss,
+                               self.hyper_parameters,
+                               allow_unused=True)
+        
+        total_grad = [d + i if d is not None else i for d, i in zip(direct, indirect)]
+        
+        self.hyper_optim.zero_grad()
+        for p, g in zip(self.hyper_parameters, total_grad):
+            p.grad = g
+        self.hyper_optim.step()
+        
+    def build_inverse_hvp(self, **kwargs):
+        pass
 
 if __name__ == "__main__":
     

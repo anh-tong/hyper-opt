@@ -8,7 +8,7 @@ from torch.optim import Adam
 
 from network import MLP, SimpleModel
 from model import AllL2HyperOptModel, L2HyperOptModel
-from hyper_opt import ConjugateHyperOptimizer, NeumannHyperOptimizer
+from hyper_opt import ConjugateHyperOptimizer, FixedPointHyperOptimizer, NeumannHyperOptimizer
 
 
 from example.data_utils import InfiniteDataLoader, load_mnist
@@ -39,15 +39,21 @@ h_model.to(device=device)
 
 # init two optimizers: one for neural network weights, the other for hypeparmeter
 weight_optimizer = Adam(h_model.parameters, lr=args.lr)
-hyper_optimizer = NeumannHyperOptimizer(h_model.parameters,
-                                        h_model.hyper_parameters,
-                                        base_optimizer='SGD',
-                                        default=dict(lr=args.hyper_lr),
-                                        use_gauss_newton=True)
-hyper_optimizer.build_inverse_hvp(lr=1.)
+
+# hyper_optimizer = NeumannHyperOptimizer(h_model.parameters,
+#                                         h_model.hyper_parameters,
+#                                         base_optimizer='SGD',
+#                                         default=dict(lr=args.hyper_lr),
+#                                         use_gauss_newton=True)
+# hyper_optimizer.build_inverse_hvp(lr=0.5)
 
 # hyper_optimizer = ConjugateHyperOptimizer(h_model.parameters,h_model.hyper_parameters, default=dict(lr=args.hyper_lr))
 
+hyper_optimizer = FixedPointHyperOptimizer(h_model.parameters,
+                                           h_model.hyper_parameters,
+                                           use_gauss_newton=False)
+hyper_optimizer.build_inverse_hvp(num_iter=20,
+                                  lr=0.01)
 
 def evaluate():
     model.eval()
@@ -68,23 +74,26 @@ def evaluate():
     
 
 def train():
-    
+    T = 10
     counter = 0
     while train_iter.epoch_elapsed <= 10:
         
-        model.train()
-        train_x, train_y = train_iter.next_batch()
-        train_loss, train_logit = h_model.train_loss(train_x, train_y)
-        weight_optimizer.zero_grad()
-        train_loss.backward() # retain graph so we can reuse this train loss
-        weight_optimizer.step()
+        for t in range(T):
+            model.train()
+            train_x, train_y = train_iter.next_batch()
+            train_loss, train_logit = h_model.train_loss(train_x, train_y)
+            weight_optimizer.zero_grad()
+            train_loss.backward() # retain graph so we can reuse this train loss
+            weight_optimizer.step()
         
         val_x, val_y = val_iter.next_batch()
         val_loss = h_model.validation_loss(val_x, val_y)
-        if train_iter.epoch_elapsed >=1:
+        if train_iter.epoch_elapsed >=2:
             train_loss, train_logit = h_model.train_loss(train_x, train_y)
             hyper_optimizer.step(train_loss, val_loss, train_logit, verbose=True)
         
+        # for weight_decay in h_model.hyper_parameters:
+        #     weight_decay.data.clamp_(min=1e-8)
         
         if counter % 10 == 0 and counter > 0:
             eval_acc, eval_loss = evaluate()
