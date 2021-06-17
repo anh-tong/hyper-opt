@@ -142,8 +142,7 @@ class ConjugateHyperOptimizer(BaseHyperOptimizer):
         
     def build_inverse_hvp(self, num_iter=20):
         self.inverse_hvp_kwargs = dict(num_iter=num_iter)
-        self.inverse_hvp = conjugate_gradient
-        
+        self.inverse_hvp = conjugate_gradient  
 
 class FixedPointHyperOptimizer(BaseHyperOptimizer):
     
@@ -162,29 +161,40 @@ class FixedPointHyperOptimizer(BaseHyperOptimizer):
     def build_inverse_hvp(self, num_iter=20, lr=0.1):
         self.inverse_hvp_kwargs = dict(num_iter=num_iter, lr=lr)
         self.inverse_hvp = fixed_point
-        
 
-class StochasticFixedPointHyperOptimizer(BaseHyperOptimizer):
+
+class BaseHyperOptimizer_v2():
     
-    def __init__(self, parameters, hyper_parameters, base_optimizer, default, use_gauss_newton) -> None:
-        super().__init__(parameters, hyper_parameters, base_optimizer=base_optimizer, default=default, use_gauss_newton=use_gauss_newton)
+    def __init__(
+        self, 
+        parameters,
+        hyper_parameters,
+        base_optimizer='SGD',
+        default=dict(lr=0.1), 
+        use_gauss_newton=True,
+        stochastic=True) -> None:
+        
+        self.parameters = parameters
+        self.hyper_parameters = hyper_parameters
+        
+        if base_optimizer == 'SGD':
+            self.hyper_optim = SGD(self.hyper_parameters, **default)
+        elif base_optimizer == 'RMSprop':
+            self.hyper_optim = RMSprop(self.hyper_parameters, **default)
+        else:
+            ValueError("Only consider base_optimizer with SGD and RMSprop optimizer")
+        
+        self.use_gauss_newton = use_gauss_newton
+        self.stochastic = stochastic
+        
+        self.set_kwargs()
+        
+    def set_kwargs(self, inner_lr=0.1, K=20, **kwargs):
+        self.inner_lr = inner_lr
+        self.K = K
         
     
-    def step(self, train_loss_func: Callable, val_loss, train_logit):
-        
-        eta = 0.9
-        inner_lr = 0.1
-        K = 20
-        
-        def fixed_point_map():
-            train_loss = train_loss_func()
-            dtrain_dparam = autograd.grad(
-                train_loss,
-                self.parameters,
-                create_graph=True
-            )
-            
-            return [p - inner_lr * g for p, g in zip(self.parameters, dtrain_dparam) ]
+    def step(self, train_loss_fun, val_loss, verbose=False):
         
         dval_dparam = autograd.grad(
             val_loss,
@@ -192,82 +202,62 @@ class StochasticFixedPointHyperOptimizer(BaseHyperOptimizer):
             retain_graph=True
         )
         
-        v = dval_dparam
-        for k in range(K):
-            prev_v = v
+        if self.stochastic:
+            def hessian_vector_product(v):
+                # evaluate train_loss on minibatch data every time this function call
+                train_loss, _ = train_loss_fun()
+                dtrain_dparam = autograd.grad(
+                    train_loss,
+                    self.parameters,
+                    create_graph=True
+                )
+                
+                return autograd.grad(
+                    dtrain_dparam,
+                    self.parameters,
+                    grad_outputs=v
+                )
             
-            w_mapp = fixed_point_map()
-            output = autograd.grad(
-                w_mapp,
-                self.parameters,
-                grad_outputs=v,
-                retain_graph=False
-            )
-            
-            hat_phi = [o + e for o, e in zip(output, dval_dparam)]        
-            v = [(1.-eta)* v_ + eta*phi for v_, phi in zip(v, hat_phi)]
+            def gauss_newton_vector_product(v):
+                train_loss, train_logit = train_loss_fun()
+                return gvp(train_loss, train_logit, self.parameters, vector=v, retain_graph=False)
+        else:
+            # train_loss is just evaluated once
+            train_loss, train_logit = train_loss_fun()
+            def hessian_vector_product(v):
+                dtrain_dparam = autograd.grad(
+                    train_loss,
+                    self.parameters,
+                    create_graph=True,
+                    retain_graph=True # this case must retain graph
+                )
+                
+                return autograd.grad(
+                    dtrain_dparam,
+                    self.parameters,
+                    grad_outputs=v
+                )
+                
+            def gauss_newton_vector_product(v):
+                return gvp(train_loss, train_logit, self.parameters, vector=v, retain_graph=True)  # this case must retain graph
         
-        w_mapp = fixed_point_map()
-        indirect = autograd.grad(
-            w_mapp,
-            self.hyper_parameters,
-            grad_outputs=v,
-            allow_unused=True
-        )
+        if self.use_gauss_newton:
+            mvp = gauss_newton_vector_product
+        else:
+            mvp = hessian_vector_product
         
-        direct = autograd.grad(
-            val_loss,
-            self.hyper_parameters,
-            allow_unused=True
-        )
-        
-        total_grad = [d + i if d is not None else i for d, i in zip(direct, indirect)]
-        
-        self.hyper_optim.zero_grad()
-        for p, g in zip(self.hyper_parameters, total_grad):
-            p.grad = g
-        self.hyper_optim.step()
-        
-    def build_inverse_hvp(self, **kwargs):
-        pass
-
-
-class StochasticNeumannHyperOptimizer(BaseHyperOptimizer):
-    
-    def __init__(self, parameters, hyper_parameters, base_optimizer, default, use_gauss_newton) -> None:
-        super().__init__(parameters, hyper_parameters, base_optimizer=base_optimizer, default=default, use_gauss_newton=use_gauss_newton)
-        
-    
-    def step(self, train_loss_fun, val_loss, train_logit):
-        
-        inner_lr = 0.1
-        K = 20
-        
-        dval_dparam = autograd.grad(
-            val_loss,
-            self.parameters,
-            retain_graph=True
-        )
-        
+        p = self.solve(A=mvp, x=dval_dparam)   
         p = v = dval_dparam
-        
-        for i in range(K):
-            train_loss = train_loss_fun()
-            dtrain_dparam = autograd.grad(
-                train_loss,
-                self.parameters,
-                create_graph=True
-            )
-            
-            output = autograd.grad(
-                dtrain_dparam,
-                self.parameters,
-                grad_outputs=dval_dparam
-            )
-            v = [v_ + inner_lr * o_ for v_, o_ in zip(v, output)]
+        for _ in range(self.K):
+            output = mvp(v)
+            v = [v_ + self.inner_lr * o_ for v_, o_ in zip(v, output)]
             p = [v_ + p_ for v_, p_ in zip(v, p)]
         
-        train_loss = -inner_lr * train_loss_fun()
+        if self.stochastic:
+            train_loss = - self.inner_lr * train_loss_fun()[0]
+        else:
+            train_loss = - self.inner_lr * train_loss
+            
         minus_dtrain_dparam = autograd.grad(
             train_loss,
             self.parameters,
@@ -280,7 +270,6 @@ class StochasticNeumannHyperOptimizer(BaseHyperOptimizer):
             grad_outputs=p
         )
         
-        
         direct = autograd.grad(
             val_loss,
             self.hyper_parameters,
@@ -293,10 +282,67 @@ class StochasticNeumannHyperOptimizer(BaseHyperOptimizer):
         for p, g in zip(self.hyper_parameters, total_grad):
             p.grad = g
         self.hyper_optim.step()
-        
-    def build_inverse_hvp(self, **kwargs):
-        pass
 
+    def solve(self, A: Callable, x):
+        
+        p = v = x
+        for _ in range(self.K):
+            output = A(v)
+            v = [v_ + self.inner_lr * o_ for v_, o_ in zip(v, output)]
+            p = [v_ + p_ for v_, p_ in zip(v, p)]
+            # early stopping?
+            
+        return p
+    
+class NeumannHyperOptimizer_v2(BaseHyperOptimizer_v2):
+    
+    def __init__(
+        self, 
+        parameters, hyper_parameters,
+        base_optimizer='SGD', 
+        default=dict(lr=0.1),
+        use_gauss_newton=True, 
+        stochastic=True) -> None:
+        super().__init__(parameters, hyper_parameters, base_optimizer=base_optimizer, default=default,
+                         use_gauss_newton=use_gauss_newton, stochastic=stochastic)
+    
+    def solve(self, A: Callable, x):
+        
+        p = v = x
+        for _ in range(self.K):
+            output = A(v)
+            v = [v_ + self.inner_lr * o_ for v_, o_ in zip(v, output)]
+            p = [v_ + p_ for v_, p_ in zip(v, p)]
+            # early stopping?
+            
+        return p
+    
+class FixedPointHyperOptimizer_v2(BaseHyperOptimizer_v2):
+    
+    def __init__(
+        self, 
+        parameters, hyper_parameters,
+        base_optimizer='SGD', 
+        default=dict(lr=0.1),
+        use_gauss_newton=True, 
+        stochastic=True) -> None:
+        super().__init__(parameters, hyper_parameters, base_optimizer=base_optimizer, default=default,
+                         use_gauss_newton=use_gauss_newton, stochastic=stochastic)
+        
+    def set_kwargs(self, inner_lr=0.1, K=20, eta=0.9):
+        super().set_kwargs(inner_lr=inner_lr, K=K)
+        self.eta = eta
+    
+    def solve(self, A: Callable, x):
+        
+        v = x
+        for _ in range(self.K):
+            output = A(v)
+            hat_phi = [v_ - self.inner_lr * o_ + x_ for v_, o_, x_ in zip(v, output, x)]
+            v = [(1.-self.eta)* v_ + self.eta * phi for v_, phi in zip(v, hat_phi)]
+
+            # TODO: early stopping
+        return v
 
 class HyperOptOptimizer_v2(BaseHyperOptimizer):
     
