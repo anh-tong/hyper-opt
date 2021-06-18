@@ -54,7 +54,7 @@ class L2HyperOptModel(BaseHyperOptModel):
     
     def __init__(self, network, criterion) -> None:
         super().__init__(network, criterion)
-        self.l2 = nn.Parameter(torch.tensor([-10.]))
+        self.l2 = nn.Parameter(torch.tensor([1e-3]))
         
     @property
     def hyper_parameters(self):
@@ -64,8 +64,8 @@ class L2HyperOptModel(BaseHyperOptModel):
         
         ret = 0.
         for param in self.parameters:
-            ret += torch.sum(torch.mul(param, param))
-        return ret * (10** self.l2)
+            ret += torch.norm(param)
+        return ret * (self.l2)
     
 
 class AllL2HyperOptModel(BaseHyperOptModel):
@@ -94,10 +94,26 @@ class AllL2HyperOptModel(BaseHyperOptModel):
 
 class UNetAugmentHyperOptModel(BaseHyperOptModel):
     
-    def __init__(self, network, criterion) -> None:
+    def __init__(self, network, criterion,
+                 in_channels,
+                 num_classes,
+                 depth=2,
+                 wf=3,
+                 padding=True,
+                 batch_norm=False,
+                 do_noise_channel=True,
+                 up_mode='upconv',
+                 use_indentity_residual=True) -> None:
         super().__init__(network, criterion)
         
-        self.augment_net = UNet()
+        self.augment_net = UNet(in_channels, num_classes,
+                                depth,
+                                wf=wf,
+                                padding=padding,
+                                batch_norm=batch_norm,
+                                do_noise_channel=do_noise_channel,
+                                use_identity_residual=use_indentity_residual,
+                                up_mode=up_mode)
         
     
     @property

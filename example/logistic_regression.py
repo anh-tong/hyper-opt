@@ -1,7 +1,7 @@
 import sys
-sys.path.append("/home/anhth/projects/hyper-opt")
+sys.path.append(".")
 from model import BaseHyperOptModel
-from hyper_opt import ConjugateHyperOptimizer, NeumannHyperOptimizer
+from hyper_opt import NeumannHyperOptimizer, FixedPointHyperOptimizer
 import torch
 import torch.nn as nn
 
@@ -51,11 +51,12 @@ train_loss,_ = model.train_loss(x_train, y_train)
 val_loss = model.validation_loss(x_val, y_val)
 
 w_optimizer = torch.optim.SGD(model.parameters, lr=0.1)
-hyper_optimizer = ConjugateHyperOptimizer(model.parameters, model.hyper_parameters, default=dict(lr=1., momentum=.9))
-hyper_optimizer.build_inverse_hvp(num_iter=K)
+hyper_optimizer = FixedPointHyperOptimizer(model.parameters, model.hyper_parameters, default=dict(lr=1., momentum=.99), stochastic=False)
+hyper_optimizer.set_kwargs(inner_lr=0.1, K=20)
 # hyper_optimizer = NeumannHyperOptimizer(model.parameters, model.hyper_parameters, default=dict(lr=1., momentum=.9), use_gauss_newton=False)
-# hyper_optimizer.build_inverse_hvp(lr=1., truncate_iter=K)
 
+def train_loss_func():
+    return model.train_loss(x_train, y_train)
 
 for o_step in range(outer_steps):
     
@@ -67,9 +68,8 @@ for o_step in range(outer_steps):
         w_optimizer.step()
     
     # outer optimizer
-    train_loss, train_logit = model.train_loss(x_train, y_train)
     val_loss = model.validation_loss(x_val, y_val)
-    hyper_optimizer.step(train_loss, val_loss, train_logit)
+    hyper_optimizer.step(train_loss_func, val_loss)
     model.hyper_parameters[0].data.clamp_(min=1e-8)
     
     if o_step % 10 == 0:
