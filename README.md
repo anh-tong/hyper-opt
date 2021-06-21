@@ -12,14 +12,54 @@ The motivation to reimplement is to
 
 ## Implementation detail
 
+### Model
 Suppose we have a model which is a subclass of ```nn.Module```, containing all parameters. ```BaseHypeOptModel``` in ```model.py``` will wrap this model and add hyperparameters. This ```BaseHyperOptModel``` will manage and intergate all the hyperparmaters in the main model such as computing the train loss via ```train_loss``` function, compute validation loss via ```validation_loss``` function. Currently ```BaseHyperOptModel``` allows its subclass to customize regularization and data augmentation. 
 
+#### Example
+Let us define the logistic regression model as
+```
+class LogisticRegression(nn.Module):
+    
+    def __init__(self, input_dim):
+        super().__init__()
+        self.w = nn.Parameter(torch.randn((input_dim, 1)))
+    
+    def forward(self, x):
+        return x @ self.w
+```
+In this example, we will try to optimize L2 hyperparameter. The following object will handle this hyperparameter
+```
+class L2RHyperOptModel(BaseHyperOptModel):
+    
+    def __init__(self, input_dim) -> None:
+        network = LogisticRegression(input_dim)
+        criterion = nn.BCEWithLogitsLoss()
+        super().__init__(network, criterion)
+
+        # declare hyperparmeters    
+        self.hparams = nn.Parameter(torch.ones(input_dim,1))
+        
+    @property
+    def hyper_parameters(self):
+        # return a list of hyperparameters
+        return [self.hparams]
+    
+    def regularizer(self):
+        # regularizer will be added to the train loss
+        return 0.5 * (self.network.w.t() @ torch.diag(self.hparams.squeeze())) @ self.network.
+```
+
+### Optimizer
 We introduce ```BaseHyperOptimizer``` object which compute hypergradient for hyperparameters via implicit function theorem. The subclass extending this object should provide a way to approximate inverse Hessian vector product. The current implementation contains serveral approaches for this
 1. Conjugate Gradient
 2. Neumann series expansion
 3. Fixed point
 
+```BaseHyperOptimizer``` allows to pick whether the hyper gradient is computed over 1 batch (set ```stochastic=False```) or multiple batches (set ```stochastic=True```). Refer to the [AISTATS paper](https://arxiv.org/pdf/2011.07122.pdf) for the stochastic version.
+
 This optimizer allows to choose between using Hessian matrix or Gauss-Newton Hessian matrix (see [this](https://proceedings.neurips.cc/paper/2019/hash/46a558d97954d0692411c861cf78ef79-Abstract.html)).
+
+In each optimizer step, ```BaseHyperOptimizer``` will take inputs including ```train_loss_func``` which is a function returing two outputs (train loss, train logit) and ```val_loss``` which is the validation loss.
 
 ## Some useful references
 

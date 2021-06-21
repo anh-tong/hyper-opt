@@ -3,10 +3,9 @@ from typing import Callable
 from model import BaseHyperOptModel
 from torch import autograd
 import torch
-from torch.nn.utils import clip_grad_norm_
 from torch.optim import SGD, RMSprop
 from torch.nn.utils.convert_parameters import parameters_to_vector
-from utils import fixed_point, gvp, jvp, neumann, conjugate_gradient
+from utils import gvp
 
 
 class BaseHyperOptimizer():
@@ -192,6 +191,23 @@ class FixedPointHyperOptimizer(BaseHyperOptimizer):
 
             # TODO: early stopping
         return v
+    
+class ConjugateHyperOptimizer(BaseHyperOptimizer):
+    
+    def __init__(
+        self, 
+        parameters, 
+        hyper_parameters, 
+        base_optimizer='SGD', 
+        default=dict(lr=0.1), 
+        use_gauss_newton=True,
+        stochastic=True) -> None:
+        super().__init__(parameters, hyper_parameters, base_optimizer=base_optimizer, default=default,
+                         use_gauss_newton=use_gauss_newton, stochastic=stochastic)
+        
+    def solve(self, A: Callable, b):
+        # TODO: implement this
+        raise NotImplementedError
 
 
 if __name__ == "__main__":
