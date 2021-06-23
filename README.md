@@ -1,8 +1,9 @@
 ## Description
 
-This repo is to implement the method in this paper [Optimizing Millions of Hyperparameters by Implicit Differentiation](https://arxiv.org/abs/1911.02590).
+This repo is to implement methods in
 
-The authors' implementation can be found at this [link](https://github.com/lorraine2/implicit-hyper-opt).
+- [Optimizing Millions of Hyperparameters by Implicit Differentiation](https://arxiv.org/abs/1911.02590).
+- [On the Iteration Complexity of Hypergradient Computation, ICML 2020](https://arxiv.org/pdf/2006.16218.pdf)
 
 The motivation to reimplement is to 
 1. serve my own learning purpose
@@ -16,7 +17,7 @@ The motivation to reimplement is to
 Suppose we have a model which is a subclass of ```nn.Module```, containing all parameters. ```BaseHypeOptModel``` in ```model.py``` will wrap this model and add hyperparameters. This ```BaseHyperOptModel``` will manage and intergate all the hyperparmaters in the main model such as computing the train loss via ```train_loss``` function, compute validation loss via ```validation_loss``` function. Currently ```BaseHyperOptModel``` allows its subclass to customize regularization and data augmentation. 
 
 #### Example
-Let us define the logistic regression model as
+Let us define the logistic regression model for L2 regularization problem:
 ```
 class LogisticRegression(nn.Module):
     
@@ -50,7 +51,7 @@ class L2RHyperOptModel(BaseHyperOptModel):
 ```
 
 ### Optimizer
-We introduce ```BaseHyperOptimizer``` object which compute hypergradient for hyperparameters via implicit function theorem. The subclass extending this object should provide a way to approximate inverse Hessian vector product. The current implementation contains serveral approaches for this
+We introduce ```BaseHyperOptimizer``` object which computes hypergradient for hyperparameters via implicit function theorem. The subclass extending this object should provide a way to approximate inverse Hessian vector product. The current implementation contains serveral approaches
 1. Conjugate Gradient
 2. Neumann series expansion
 3. Fixed point
@@ -64,9 +65,10 @@ In each optimizer step, ```BaseHyperOptimizer``` will take inputs including ```t
 ## Some useful references
 
 1. [Hypertorch library](https://github.com/prolearner/hypertorch): An excellent library which this repo adopts in many parts. However, it's a little bit hard to work around with ```nn.Module.parameters```.
-2. [Hyperparameter optimization with approximate gradient, ICML 2016](https://arxiv.org/abs/1602.02355): Maybe the first work of hyperparameter optimization using implicit gradient. Here the approximation tool is conjugate gradient method
-3. [On the Iteration Complexity of Hypergradient Computation, ICML 2020](https://arxiv.org/pdf/2006.16218.pdf): In-depth comparison (convergence and approximate error) between iterative differentation (or unrolling) and approximate implicit differentation. The approximation considers two cases: fixed point vs conjugate gradient
-4. [Convergence Properties of Stochastic Hypergradients, AISTATS 2021](https://arxiv.org/pdf/2011.07122.pdf): This work is quite important since previously we may blindly train implicit differentation method with minibatches of data and not know if it really converge.
-5. [Optimizing Millions of Hyperparameters by Implicit Differentiation](https://arxiv.org/abs/1911.02590): Approximate implicit differentation with Neumann series expansion. 
-6. [Efficient and Modular Implicit Differentiation](https://arxiv.org/pdf/2105.15183.pdf): A recent work from Google explains a general, modular approach which modularizes solvers and autodiff.
-7. [Roger Grosse's course](https://www.cs.toronto.edu/~rgrosse/courses/csc2541_2021/): Excellent material for beginners from basic optimization to bilevel optimization.
+2. [GradientBased Optimization of HyperParamete](http://www-labs.iro.umontreal.ca/~lisa/pointeurs/nc.pdf): Hyperparameter Optimization is dated back in the year 2000 by the work of Bengio.
+3. [Hyperparameter optimization with approximate gradient, ICML 2016](https://arxiv.org/abs/1602.02355): Maybe the first work of hyperparameter optimization using implicit gradient. Here the approximation tool is conjugate gradient method
+4. [On the Iteration Complexity of Hypergradient Computation, ICML 2020](https://arxiv.org/pdf/2006.16218.pdf): In-depth comparison (convergence and approximate error) between iterative differentation (or unrolling) and approximate implicit differentation. The approximation considers two cases: fixed point vs conjugate gradient
+5. [Convergence Properties of Stochastic Hypergradients, AISTATS 2021](https://arxiv.org/pdf/2011.07122.pdf): This work is quite important since previously we may blindly train implicit differentation method with minibatches of data and not know if it really converges.
+6. [Optimizing Millions of Hyperparameters by Implicit Differentiation](https://arxiv.org/abs/1911.02590): Approximate implicit differentation with Neumann series expansion. 
+7. [Efficient and Modular Implicit Differentiation](https://arxiv.org/pdf/2105.15183.pdf): A recent work from Google explains a general, modular approach which modularizes solvers and autodiff.
+8. [Roger Grosse's course](https://www.cs.toronto.edu/~rgrosse/courses/csc2541_2021/): Excellent material for beginners from basic optimization to bilevel optimization.
